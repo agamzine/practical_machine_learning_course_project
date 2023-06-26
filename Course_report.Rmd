@@ -1,30 +1,138 @@
 ---
-title: "Course_Report"
+title: "Coursera Data Science Specialisation - Predictive Modelling Course Project"
 author: "agamzine"
 date: "`r Sys.Date()`"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 ```
 
-## R Markdown
+## Executive Summary
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement: a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+The goal of this project is to predict the manner in which 6 participants performed an exercise, using data from accelerometers on the belt, forearm, arm, and dumbell as they performed barbell lifts correctly and incorrectly in 5 different ways.
 
-```{r cars}
-summary(cars)
+## Key Findings
+
+lorem ipsum
+
+## Data Processing
+
+```{r data_ingestion}
+
+training_raw <- read.csv("pml-training.csv")
+testing_raw <- read.csv("pml-testing.csv")
+
 ```
 
-## Including Plots
+Lets first take a look at the data available for training:
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r data_summary, include = FALSE}
+# Load the knitr package
+library(knitr)
+
+# Use str() to get information about the data frame and capture the printed output
+str_df <- capture.output(str(training_raw))
+
+# Remove the first line and last line, which contain extraneous information
+str_df <- str_df[-1]
+str_df <- str_df[-length(str_df)]
+
+# Convert the output to a data frame using kable()
+kable(data.frame(str_df), col.names = "", caption = "Summary of Data Frame Structure")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+As we can see, there are a number of variables which are not usable for training our prediction model. Certain columns have errors, missing data and so on.
+
+In addition, the data can be broken up into the following buckets:
+- The target outcome ('classe') - how well the participants perform the activity
+- The entity descriptors ('user', 'timestamp')
+- The measurements taken from the accelerometers
+
+
+## Feature Engineering
+
+There are over 150 columns we can use for analysis, but this is likely to be too many to be manageable. To improve how well our model runs we should reduce the number of features using some techniques such as principal component analysis.
+
+Lets begin by cleaning the data and removing columns with errors or missing data, for now lets assume that the model will perform well enough even without those columns:
+
+```{r}
+#Feature engineer training
+to.remove <- c("classe")
+training_clean <- training_raw[ , 7:160]
+training_clean <- training_clean[ , -which(names(training_clean) %in% to.remove)]
+
+training_clean <- data.frame(lapply(training_clean,as.numeric))
+training_clean <- training_clean[ , colSums(is.na(training_clean))==0]
+
+
+#Copy to testing
+to.remove <- c("problem_id")
+testing_clean <- testing_raw[ , 7:160]
+testing_clean <- testing_clean[ , -which(names(testing_clean) %in% to.remove)]
+
+testing_clean <- data.frame(lapply(testing_clean,as.numeric))
+testing_clean <- testing_clean[ , colSums(is.na(testing_clean))==0]
+```
+
+We are left with just 56 variables to perform our PCA. Since the data are recording the physical movements of participants, you would expect to see a correlation between certain variables (as you move your body up using your legs, your belt moves up and so do your arms - for example). Lets see if these variables are correlated with one another to assess whether PCA will be beneficial to the models.
+
+```{r, cache = TRUE}
+library(corrgram)
+M <- abs(cor(training_clean))
+
+corrgram(M, order=NULL, lower.panel=panel.shade, upper.panel=NULL, text.panel=panel.txt, main="Correlation of 56 'clean' data variables")
+
+```
+
+
+Then we can run the prcomp function to perform the PCA:
+
+```{r}
+pca_result <- prcomp(training_clean, center = TRUE, scale. = TRUE)
+#pca_result <- prcomp(log10(training_clean+1))
+
+# Plot the PCA results
+plot(pca_result, type = "l")
+```
+
+
+We can see that by using the PCA method we can explain the vast majority of the variance in the variables with just 10 principal components.
+
+## Prediction Modelling
+
+Since this is a discrete classification problem, lets use a decision tree model - specifically random forest - to predict the classe in the testing dataset.
+
+```{r}
+#Load the caret package
+library(caret)
+
+#Principal component analysis for the training data
+preProc <- preProcess(training_clean, method = "pca", pcaComp = 10)
+
+#Find the PCA's for the training data
+trainPC <- predict(preProc, training_clean)
+
+#Add the actual values to the PCA dataframe
+trainPC$classe <- as.factor(training_raw$classe)
+
+#Train a random forest model
+modelFit <- train(classe ~ ., method = "rf", data = trainPC)
+
+#Use the same principal components on the testing data
+testPC <- predict(preProc, testing_clean)
+
+#Make the predictions on the testing data using the trained model
+p <- predict(modelFit, testPC)
+
+p
+```
+
+
+
+
+
